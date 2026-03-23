@@ -71,11 +71,10 @@ app.get('/api/top-perfs', async (req, res) => {
       });
     });
     res.json(Object.values(perfs).sort((a, b) => a.exercise.localeCompare(b.exercise)));
+
   } catch (e) {
     res.status(500).json({ error: 'Erreur MongoDB' });
   }
-});
-  res.json(data.sessions[idx]);
 });
 
 app.delete('/api/sessions/:id', (req, res) => {
