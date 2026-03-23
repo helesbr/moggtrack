@@ -168,6 +168,44 @@
 
     .empty { text-align: center; color: #888; margin-top: 32px; font-size: 1rem; }
 
+    /* --- REST TIMER --- */
+    .timer-container { display: flex; flex-direction: column; align-items: center; gap: 24px; padding-top: 20px; }
+    .timer-circle {
+      width: 220px; height: 220px;
+      border-radius: 50%;
+      border: 6px solid #16213e;
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
+    }
+    .timer-circle svg {
+      position: absolute; top: -6px; left: -6px;
+      width: 232px; height: 232px;
+      transform: rotate(-90deg);
+    }
+    .timer-circle svg circle {
+      fill: none; stroke-width: 6; stroke-linecap: round;
+    }
+    .timer-circle .bg { stroke: #16213e; }
+    .timer-circle .progress { stroke: #e94560; transition: stroke-dashoffset 0.3s linear; }
+    .timer-display { font-size: 3.5rem; font-weight: 700; color: #e94560; z-index: 1; }
+    .timer-presets { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+    .timer-presets button {
+      background: #16213e; color: #ccc; border: 2px solid #533483;
+      border-radius: 20px; padding: 8px 18px; font-size: 0.95rem; cursor: pointer; font-weight: 600;
+    }
+    .timer-presets button.selected { background: #533483; color: #fff; border-color: #e94560; }
+    .timer-presets button:hover { border-color: #e94560; }
+    .timer-controls { display: flex; gap: 12px; }
+    .timer-controls button { min-width: 110px; font-size: 1.1rem; padding: 14px 24px; }
+    .timer-custom { display: flex; align-items: center; gap: 8px; }
+    .timer-custom input {
+      width: 80px; padding: 10px; text-align: center;
+      border: 2px solid #16213e; border-radius: 8px;
+      background: #16213e; color: #eee; font-size: 1.1rem; outline: none;
+    }
+    .timer-custom input:focus { border-color: #e94560; }
+    .timer-custom span { color: #888; font-size: 0.9rem; }
+
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(-8px); }
       to { opacity: 1; transform: translateY(0); }
@@ -180,6 +218,7 @@
   <div class="nav">
     <button class="active" data-page="calendar">📅 Calendrier</button>
     <button data-page="topperf">🏆 Top Perf</button>
+    <button data-page="timer">⏱️ Repos</button>
     <button data-page="tasks">📝 Tâches</button>
   </div>
 
@@ -207,6 +246,37 @@
     <h2>🏆 Meilleures Performances</h2>
     <div id="perfList"></div>
     <p class="empty" id="perfEmpty">Aucune perf enregistrée. Ajoute des séances !</p>
+  </div>
+
+  <!-- PAGE: TIMER REPOS -->
+  <div class="page" id="page-timer">
+    <h2>⏱️ Temps de Repos</h2>
+    <div class="timer-container">
+      <div class="timer-circle">
+        <svg viewBox="0 0 232 232">
+          <circle class="bg" cx="116" cy="116" r="110"/>
+          <circle class="progress" id="timerProgress" cx="116" cy="116" r="110"/>
+        </svg>
+        <div class="timer-display" id="timerDisplay">1:30</div>
+      </div>
+      <div class="timer-presets">
+        <button data-time="30">30s</button>
+        <button data-time="60">1 min</button>
+        <button class="selected" data-time="90">1:30</button>
+        <button data-time="120">2 min</button>
+        <button data-time="180">3 min</button>
+        <button data-time="300">5 min</button>
+      </div>
+      <div class="timer-custom">
+        <input type="number" id="customTime" placeholder="sec" min="1" max="3600">
+        <span>secondes</span>
+        <button class="btn btn-secondary btn-sm" id="setCustomTime">OK</button>
+      </div>
+      <div class="timer-controls">
+        <button class="btn btn-primary" id="timerStartBtn">Démarrer</button>
+        <button class="btn btn-secondary" id="timerResetBtn">Reset</button>
+      </div>
+    </div>
   </div>
 
   <!-- PAGE: TÂCHES -->
@@ -541,6 +611,107 @@
     loadTaskList();
     setInterval(loadSessions, 5000);
     setInterval(loadTaskList, 5000);
+
+    // --- REST TIMER ---
+    let timerDuration = 90;
+    let timerRemaining = 90;
+    let timerInterval = null;
+    let timerRunning = false;
+    const CIRCUMFERENCE = 2 * Math.PI * 110;
+    const timerProgress = document.getElementById('timerProgress');
+    const timerDisplay = document.getElementById('timerDisplay');
+    const timerStartBtn = document.getElementById('timerStartBtn');
+    const timerResetBtn = document.getElementById('timerResetBtn');
+
+    timerProgress.setAttribute('stroke-dasharray', CIRCUMFERENCE);
+    timerProgress.setAttribute('stroke-dashoffset', '0');
+
+    function formatTimer(sec) {
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return m > 0 ? `${m}:${s.toString().padStart(2, '0')}` : `${s}s`;
+    }
+
+    function updateTimerUI() {
+      timerDisplay.textContent = formatTimer(timerRemaining);
+      const pct = 1 - (timerRemaining / timerDuration);
+      timerProgress.setAttribute('stroke-dashoffset', (pct * CIRCUMFERENCE).toString());
+    }
+
+    function startTimer() {
+      if (timerRunning) {
+        // Pause
+        clearInterval(timerInterval);
+        timerRunning = false;
+        timerStartBtn.textContent = 'Reprendre';
+        return;
+      }
+      if (timerRemaining <= 0) {
+        timerRemaining = timerDuration;
+      }
+      timerRunning = true;
+      timerStartBtn.textContent = 'Pause';
+      timerInterval = setInterval(() => {
+        timerRemaining--;
+        updateTimerUI();
+        if (timerRemaining <= 0) {
+          clearInterval(timerInterval);
+          timerRunning = false;
+          timerStartBtn.textContent = 'Démarrer';
+          timerDisplay.textContent = "C'est parti !";
+          // Vibration si supportée
+          if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
+          // Son bip
+          try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            osc.type = 'square';
+            osc.frequency.value = 880;
+            osc.connect(ctx.destination);
+            osc.start();
+            setTimeout(() => { osc.stop(); ctx.close(); }, 500);
+          } catch(e) {}
+        }
+      }, 1000);
+    }
+
+    function resetTimer() {
+      clearInterval(timerInterval);
+      timerRunning = false;
+      timerRemaining = timerDuration;
+      timerStartBtn.textContent = 'Démarrer';
+      updateTimerUI();
+    }
+
+    function setTimerDuration(sec) {
+      timerDuration = sec;
+      timerRemaining = sec;
+      clearInterval(timerInterval);
+      timerRunning = false;
+      timerStartBtn.textContent = 'Démarrer';
+      updateTimerUI();
+    }
+
+    timerStartBtn.onclick = startTimer;
+    timerResetBtn.onclick = resetTimer;
+
+    document.querySelectorAll('.timer-presets button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.timer-presets button').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        setTimerDuration(parseInt(btn.dataset.time));
+      });
+    });
+
+    document.getElementById('setCustomTime').onclick = () => {
+      const val = parseInt(document.getElementById('customTime').value);
+      if (val > 0 && val <= 3600) {
+        document.querySelectorAll('.timer-presets button').forEach(b => b.classList.remove('selected'));
+        setTimerDuration(val);
+      }
+    };
+
+    updateTimerUI();
   </script>
 </body>
 </html>
