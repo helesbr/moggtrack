@@ -206,6 +206,21 @@
     .timer-custom input:focus { border-color: #e94560; }
     .timer-custom span { color: #888; font-size: 0.9rem; }
 
+    /* --- SAVED REST TIMES --- */
+    .saved-rest { margin-top: 28px; width: 100%; }
+    .saved-rest h3 { color: #e94560; margin-bottom: 12px; font-size: 1.1rem; text-align: center; }
+    .saved-rest-form { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+    .saved-rest-form input { flex: 1; min-width: 100px; padding: 10px 12px; border: 2px solid #1a1a2e; border-radius: 8px; background: #1a1a2e; color: #eee; font-size: 0.95rem; outline: none; }
+    .saved-rest-form input:focus { border-color: #e94560; }
+    .saved-rest-item {
+      display: flex; justify-content: space-between; align-items: center;
+      background: #16213e; border-radius: 8px; padding: 12px 14px; margin-bottom: 6px;
+      cursor: pointer; border: 2px solid transparent; transition: border-color 0.2s;
+    }
+    .saved-rest-item:hover { border-color: #533483; }
+    .saved-rest-item .sr-name { font-weight: 600; }
+    .saved-rest-item .sr-time { color: #e94560; font-weight: 700; margin: 0 12px; }
+
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(-8px); }
       to { opacity: 1; transform: translateY(0); }
@@ -275,6 +290,16 @@
       <div class="timer-controls">
         <button class="btn btn-primary" id="timerStartBtn">Démarrer</button>
         <button class="btn btn-secondary" id="timerResetBtn">Reset</button>
+      </div>
+      <div class="saved-rest">
+        <h3>💾 Mes temps de repos enregistrés</h3>
+        <div class="saved-rest-form">
+          <input type="text" id="srName" placeholder="Exercice (ex: Squat)" maxlength="100">
+          <input type="number" id="srTime" placeholder="Secondes" min="1" max="3600" style="max-width:100px;">
+          <button class="btn btn-primary btn-sm" id="srAddBtn">Ajouter</button>
+        </div>
+        <div id="savedRestList"></div>
+        <p class="empty" id="srEmpty" style="margin-top:12px;">Aucun temps enregistré</p>
       </div>
     </div>
   </div>
@@ -612,11 +637,13 @@
     setInterval(loadSessions, 5000);
     setInterval(loadTaskList, 5000);
 
-    // --- REST TIMER ---
+    // --- REST TIMER (timestamp-based, works across tab switches) ---
     let timerDuration = 90;
-    let timerRemaining = 90;
-    let timerInterval = null;
+    let timerEndTime = null; // timestamp quand le timer finit
+    let timerPausedRemaining = 90; // secondes restantes en pause
     let timerRunning = false;
+    let timerAnimFrame = null;
+    let timerAlerted = false;
     const CIRCUMFERENCE = 2 * Math.PI * 110;
     const timerProgress = document.getElementById('timerProgress');
     const timerDisplay = document.getElementById('timerDisplay');
@@ -627,41 +654,29 @@
     timerProgress.setAttribute('stroke-dashoffset', '0');
 
     function formatTimer(sec) {
+      if (sec <= 0) return "0s";
       const m = Math.floor(sec / 60);
       const s = sec % 60;
       return m > 0 ? `${m}:${s.toString().padStart(2, '0')}` : `${s}s`;
     }
 
-    function updateTimerUI() {
-      timerDisplay.textContent = formatTimer(timerRemaining);
-      const pct = 1 - (timerRemaining / timerDuration);
-      timerProgress.setAttribute('stroke-dashoffset', (pct * CIRCUMFERENCE).toString());
+    function getTimerRemaining() {
+      if (!timerRunning) return timerPausedRemaining;
+      return Math.max(0, Math.ceil((timerEndTime - Date.now()) / 1000));
     }
 
-    function startTimer() {
-      if (timerRunning) {
-        // Pause
-        clearInterval(timerInterval);
+    function updateTimerUI() {
+      const remaining = getTimerRemaining();
+      if (remaining <= 0 && timerRunning) {
         timerRunning = false;
-        timerStartBtn.textContent = 'Reprendre';
-        return;
-      }
-      if (timerRemaining <= 0) {
-        timerRemaining = timerDuration;
-      }
-      timerRunning = true;
-      timerStartBtn.textContent = 'Pause';
-      timerInterval = setInterval(() => {
-        timerRemaining--;
-        updateTimerUI();
-        if (timerRemaining <= 0) {
-          clearInterval(timerInterval);
-          timerRunning = false;
-          timerStartBtn.textContent = 'Démarrer';
-          timerDisplay.textContent = "C'est parti !";
-          // Vibration si supportée
+        timerPausedRemaining = 0;
+        timerStartBtn.textContent = 'Démarrer';
+        timerDisplay.textContent = "C'est parti !";
+        const pct = 1;
+        timerProgress.setAttribute('stroke-dashoffset', (pct * CIRCUMFERENCE).toString());
+        if (!timerAlerted) {
+          timerAlerted = true;
           if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
-          // Son bip
           try {
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
             const osc = ctx.createOscillator();
@@ -672,22 +687,60 @@
             setTimeout(() => { osc.stop(); ctx.close(); }, 500);
           } catch(e) {}
         }
-      }, 1000);
+        return;
+      }
+      timerDisplay.textContent = formatTimer(remaining);
+      const pct = 1 - (remaining / timerDuration);
+      timerProgress.setAttribute('stroke-dashoffset', (pct * CIRCUMFERENCE).toString());
+    }
+
+    function timerTick() {
+      updateTimerUI();
+      if (timerRunning) {
+        timerAnimFrame = requestAnimationFrame(timerTick);
+      }
+    }
+
+    // Aussi mettre à jour quand on revient sur l'onglet
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && timerRunning) updateTimerUI();
+    });
+
+    function startTimer() {
+      if (timerRunning) {
+        // Pause
+        timerPausedRemaining = getTimerRemaining();
+        timerRunning = false;
+        cancelAnimationFrame(timerAnimFrame);
+        timerStartBtn.textContent = 'Reprendre';
+        updateTimerUI();
+        return;
+      }
+      if (timerPausedRemaining <= 0) {
+        timerPausedRemaining = timerDuration;
+      }
+      timerAlerted = false;
+      timerEndTime = Date.now() + timerPausedRemaining * 1000;
+      timerRunning = true;
+      timerStartBtn.textContent = 'Pause';
+      timerTick();
     }
 
     function resetTimer() {
-      clearInterval(timerInterval);
+      cancelAnimationFrame(timerAnimFrame);
       timerRunning = false;
-      timerRemaining = timerDuration;
+      timerPausedRemaining = timerDuration;
       timerStartBtn.textContent = 'Démarrer';
+      timerAlerted = false;
       updateTimerUI();
     }
 
     function setTimerDuration(sec) {
+      cancelAnimationFrame(timerAnimFrame);
       timerDuration = sec;
-      timerRemaining = sec;
-      clearInterval(timerInterval);
+      timerPausedRemaining = sec;
       timerRunning = false;
+      timerAlerted = false;
       timerStartBtn.textContent = 'Démarrer';
       updateTimerUI();
     }
@@ -712,6 +765,53 @@
     };
 
     updateTimerUI();
+
+    // --- SAVED REST TIMES ---
+    let savedRestTimes = JSON.parse(localStorage.getItem('moggtrack_rest') || '[]');
+
+    function renderSavedRest() {
+      const list = document.getElementById('savedRestList');
+      const empty = document.getElementById('srEmpty');
+      list.innerHTML = '';
+      empty.style.display = savedRestTimes.length === 0 ? 'block' : 'none';
+      savedRestTimes.forEach((item, i) => {
+        const div = document.createElement('div');
+        div.className = 'saved-rest-item';
+        div.innerHTML = `
+          <span class="sr-name">${escapeHtml(item.name)}</span>
+          <span class="sr-time">${formatTimer(item.time)}</span>
+          <button class="btn btn-danger btn-sm">✕</button>
+        `;
+        div.querySelector('.sr-name').onclick = () => {
+          document.querySelectorAll('.timer-presets button').forEach(b => b.classList.remove('selected'));
+          setTimerDuration(item.time);
+        };
+        div.querySelector('.sr-time').onclick = () => {
+          document.querySelectorAll('.timer-presets button').forEach(b => b.classList.remove('selected'));
+          setTimerDuration(item.time);
+        };
+        div.querySelector('button').onclick = (e) => {
+          e.stopPropagation();
+          savedRestTimes.splice(i, 1);
+          localStorage.setItem('moggtrack_rest', JSON.stringify(savedRestTimes));
+          renderSavedRest();
+        };
+        list.appendChild(div);
+      });
+    }
+
+    document.getElementById('srAddBtn').onclick = () => {
+      const name = document.getElementById('srName').value.trim();
+      const time = parseInt(document.getElementById('srTime').value);
+      if (!name || !time || time <= 0 || time > 3600) return;
+      savedRestTimes.push({ name, time });
+      localStorage.setItem('moggtrack_rest', JSON.stringify(savedRestTimes));
+      document.getElementById('srName').value = '';
+      document.getElementById('srTime').value = '';
+      renderSavedRest();
+    };
+
+    renderSavedRest();
   </script>
 </body>
 </html>
