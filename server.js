@@ -98,7 +98,6 @@ app.get('/api/top-perfs', async (req, res) => {
       });
     });
     res.json(Object.values(perfs).sort((a, b) => a.exercise.localeCompare(b.exercise)));
-
   } catch (e) {
     res.status(500).json({ error: 'Erreur MongoDB' });
   }
@@ -197,30 +196,6 @@ app.delete('/api/templates/:id', async (req, res) => {
 // (Déjà présent plus haut: version MongoDB)
 
 // --- TOP PERFS API ---
-app.get('/api/top-perfs', (req, res) => {
-  const perfs = {};
-    const sessions = await sessionsCol.find({}).toArray();
-    sessions.forEach(session => {
-    const exercises = flattenExercises(session);
-    exercises.forEach(ex => {
-      const key = ex.name.toLowerCase();
-      (ex.sets || []).forEach(set => {
-        if (!perfs[key] || set.weight > perfs[key].weight ||
-           (set.weight === perfs[key].weight && set.reps > perfs[key].reps)) {
-          perfs[key] = {
-            exercise: ex.name,
-            weight: set.weight,
-            reps: set.reps,
-            sessionId: session.id,
-            sessionName: session.name,
-            date: session.date
-          };
-        }
-      });
-    });
-  });
-  res.json(Object.values(perfs).sort((a, b) => a.exercise.localeCompare(b.exercise)));
-});
 
 app.listen(PORT, () => {
   console.log(`Serveur lancé sur http://localhost:${PORT}`);
